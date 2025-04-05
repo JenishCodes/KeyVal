@@ -87,7 +87,13 @@ impl Store {
     pub fn lpush(&mut self, key: &str, value: Vec<String>) -> usize {
         let current = self.get(key);
         let mut list = match current {
-            Some(Value::List(list)) => list,
+            Some(val) => {
+                if val.is_list() {
+                    val.as_list().unwrap().clone()
+                } else {
+                    VecDeque::new()
+                }
+            }
             _ => VecDeque::new(),
         };
 
@@ -104,7 +110,13 @@ impl Store {
     pub fn rpush(&mut self, key: &str, value: Vec<String>) -> usize {
         let current = self.get(key);
         let mut list = match current {
-            Some(Value::List(list)) => list,
+            Some(val) => {
+                if val.is_list() {
+                    val.as_list().unwrap().clone()
+                } else {
+                    VecDeque::new()
+                }
+            }
             _ => VecDeque::new(),
         };
 
@@ -120,8 +132,13 @@ impl Store {
 
     pub fn lpop(&mut self, key: &str) -> Option<String> {
         let current = self.get(key);
-        if let Some(Value::List(mut list)) = current {
+        if let Some(val) = current {
+            if !val.is_list() {
+                return None;
+            }
+            let mut list = val.as_list().unwrap().clone();
             let value = list.pop_front();
+
             self.set(key, &Value::from(list));
             value
         } else {
@@ -130,8 +147,13 @@ impl Store {
     }
     pub fn rpop(&mut self, key: &str) -> Option<String> {
         let current = self.get(key);
-        if let Some(Value::List(mut list)) = current {
+        if let Some(val) = current {
+            if !val.is_list() {
+                return None;
+            }
+            let mut list = val.as_list().unwrap().clone();
             let value = list.pop_back();
+
             self.set(key, &Value::from(list));
             value
         } else {
@@ -141,7 +163,11 @@ impl Store {
 
     pub fn llen(&mut self, key: &str) -> Option<usize> {
         let current = self.get(key);
-        if let Some(Value::List(list)) = current {
+        if let Some(val) = current {
+            if !val.is_list() {
+                return None;
+            }
+            let list = val.as_list().unwrap();
             Some(list.len())
         } else {
             None
@@ -150,7 +176,12 @@ impl Store {
 
     pub fn lindex(&mut self, key: &str, index: usize) -> Option<String> {
         let current = self.get(key);
-        if let Some(Value::List(list)) = current {
+        if let Some(val) = current {
+            if !val.is_list() {
+                return None;
+            }
+            let list = val.as_list().unwrap();
+
             if index < list.len() {
                 return Some(list[index].clone());
             }
@@ -160,7 +191,11 @@ impl Store {
 
     pub fn lset(&mut self, key: &str, index: usize, value: String) -> bool {
         let current = self.get(key);
-        if let Some(Value::List(mut list)) = current {
+        if let Some(val) = current {
+            if !val.is_list() {
+                return false;
+            }
+            let mut list = val.as_list().unwrap().clone();
             if index < list.len() {
                 list[index] = value;
                 self.set(key, &Value::from(list));
@@ -171,9 +206,18 @@ impl Store {
     }
 
     pub fn lrange(&mut self, key: &str, start: usize, end: usize) -> Option<Vec<String>> {
+        if start > end {
+            return None;
+        }
+
         let current = self.get(key);
-        if let Some(Value::List(list)) = current {
-            if start < end && start < list.len() && end < list.len() {
+        if let Some(val) = current {
+            if !val.is_list() {
+                return None;
+            }
+            let list = val.as_list().unwrap();
+
+            if start < list.len() && end < list.len() {
                 return Some(list.range(start..=end).cloned().collect());
             }
         }
@@ -182,7 +226,12 @@ impl Store {
 
     pub fn lrem(&mut self, key: &str, count: i64, value: String) -> usize {
         let current = self.get(key);
-        if let Some(Value::List(mut list)) = current {
+        if let Some(val) = current {
+            if !val.is_list() {
+                return 0;
+            }
+            let mut list = val.as_list().unwrap().clone();
+
             let mut removed_count = 0;
             if count > 0 {
                 while let Some(pos) = list.iter().position(|x| *x == value) {
@@ -214,7 +263,13 @@ impl Store {
     pub fn hset(&mut self, key: &str, field: &str, value: &str) -> bool {
         let current = self.get(key);
         let mut hash = match current {
-            Some(Value::Hash(hash)) => hash,
+            Some(val) => {
+                if val.is_hash() {
+                    val.as_hash().unwrap().clone()
+                } else {
+                    HashMap::new()
+                }
+            }
             _ => HashMap::new(),
         };
 
@@ -230,7 +285,12 @@ impl Store {
 
     pub fn hget(&mut self, key: &str, field: &str) -> Option<String> {
         let current = self.get(key);
-        if let Some(Value::Hash(hash)) = current {
+        if let Some(val) = current {
+            if !val.is_hash() {
+                return None;
+            }
+            let hash = val.as_hash().unwrap();
+
             return hash.get(field).cloned();
         }
         None
@@ -238,9 +298,15 @@ impl Store {
 
     pub fn hdel(&mut self, key: &str, field: &str) -> bool {
         let current = self.get(key);
-        if let Some(Value::Hash(mut hash)) = current {
+        if let Some(val) = current {
+            if !val.is_hash() {
+                return false;
+            }
+            let mut hash = val.as_hash().unwrap().clone();
+
             let res = hash.remove(field).is_some();
             self.set(key, &Value::from(hash));
+
             return res;
         }
         false
@@ -248,7 +314,11 @@ impl Store {
 
     pub fn hlen(&mut self, key: &str) -> Option<usize> {
         let current = self.get(key);
-        if let Some(Value::Hash(hash)) = current {
+        if let Some(val) = current {
+            if !val.is_hash() {
+                return None;
+            }
+            let hash = val.as_hash().unwrap();
             return Some(hash.len());
         }
         None
@@ -256,7 +326,11 @@ impl Store {
 
     pub fn hget_all(&mut self, key: &str) -> Option<HashMap<String, String>> {
         let current = self.get(key);
-        if let Some(Value::Hash(hash)) = current {
+        if let Some(val) = current {
+            if !val.is_hash() {
+                return None;
+            }
+            let hash = val.as_hash().unwrap();
             return Some(hash.clone());
         }
         None
@@ -264,7 +338,12 @@ impl Store {
 
     pub fn hincr_by(&mut self, key: &str, field: &str, by: i64) -> Option<i64> {
         let current = self.get(key);
-        if let Some(Value::Hash(mut hash)) = current {
+        if let Some(val) = current {
+            if !val.is_hash() {
+                return None;
+            }
+            let mut hash = val.as_hash().unwrap().clone();
+            
             if let Some(value) = hash.get_mut(field) {
                 match value.parse::<i64>() {
                     Ok(n) => {
