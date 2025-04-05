@@ -32,6 +32,13 @@ pub enum Command {
     LIndex(String, usize),
     LSet(String, usize, String),
     LLen(String),
+
+    HSet(String, String, String),
+    HGet(String, String),
+    HDel(String, String),
+    HGetAll(String),
+    HIncrBy(String, String, i64),
+    HLen(String),
 }
 
 impl Command {
@@ -116,6 +123,30 @@ impl Command {
             }
             "LLEN" if args.len() == 1 => Ok(Command::LLen(args[0].to_string())),
 
+            "HSET" if args.len() == 3 => Ok(Command::HSet(
+                args[0].to_string(),
+                args[1].to_string(),
+                args[2].to_string(),
+            )),
+            "HGET" if args.len() == 2 => {
+                Ok(Command::HGet(args[0].to_string(), args[1].to_string()))
+            }
+            "HDEL" if args.len() == 2 => {
+                Ok(Command::HDel(args[0].to_string(), args[1].to_string()))
+            }
+            "HGETALL" if args.len() == 1 => Ok(Command::HGetAll(args[0].to_string())),
+            "HINCRBY" if args.len() == 3 => {
+                let value = args[2]
+                    .parse::<i64>()
+                    .map_err(|_| "Invalid value".to_string())?;
+                Ok(Command::HIncrBy(
+                    args[0].to_string(),
+                    args[1].to_string(),
+                    value,
+                ))
+            }
+            "HLEN" if args.len() == 1 => Ok(Command::HLen(args[0].to_string())),
+
             "PING" if args.is_empty() => Ok(Command::Ping),
             "QUIT" if args.is_empty() => Ok(Command::Quit),
 
@@ -127,6 +158,7 @@ impl Command {
         match self {
             Command::Ping => format!("+PONG\r\n"),
             Command::Quit => format!("+OK\r\n"),
+
             Command::Set(key, value) => {
                 store.set(key, value);
                 format!("+OK\r\n")
@@ -211,6 +243,37 @@ impl Command {
             Command::LLen(key) => match store.llen(key) {
                 Some(len) => format!("{}\r\n", len),
                 None => "$-1\r\n".to_string(),
+            },
+
+            Command::HSet(key, field, value) => {
+                format!(":{}\r\n", if store.hset(key, field, value) { 1 } else { 0 })
+            }
+            Command::HGet(key, field) => match store.hget(key, field) {
+                Some(value) => format!("${}\r\n{}\r\n", value.len(), value),
+                None => "$-1\r\n".to_string(),
+            },
+            Command::HDel(key, field) => {
+                format!(":{}\r\n", if store.hdel(key, field) { 1 } else { 0 })
+            }
+            Command::HGetAll(key) => match store.hget_all(key) {
+                Some(hash) => {
+                    format!("*{}\r\n", hash.len() * 2)
+                        + &hash
+                            .iter()
+                            .map(|(k, v)| {
+                                format!("${}\r\n{}\r\n${}\r\n{}\r\n", k.len(), k, v.len(), v)
+                            })
+                            .collect::<String>()
+                }
+                None => "*0\r\n".to_string(),
+            },
+            Command::HIncrBy(key, field, value) => match store.hincr_by(key, field, *value) {
+                Some(v) => format!("{}\r\n", v),
+                None => "-ERR hash value is not an integer\r\n".to_string(),
+            },
+            Command::HLen(key) => match store.hlen(key) {
+                Some(len) => format!(":{}\r\n", len),
+                None => ":0\r\n".to_string(),
             },
         }
     }

@@ -210,4 +210,77 @@ impl Store {
         }
         0
     }
+
+    pub fn hset(&mut self, key: &str, field: &str, value: &str) -> bool {
+        let current = self.get(key);
+        let mut hash = match current {
+            Some(Value::Hash(hash)) => hash,
+            _ => HashMap::new(),
+        };
+
+        let res = match hash.insert(field.to_string(), value.to_string()) {
+            Some(_) => true,
+            None => false,
+        };
+
+        self.set(key, &Value::from(hash));
+
+        res
+    }
+
+    pub fn hget(&mut self, key: &str, field: &str) -> Option<String> {
+        let current = self.get(key);
+        if let Some(Value::Hash(hash)) = current {
+            return hash.get(field).cloned();
+        }
+        None
+    }
+
+    pub fn hdel(&mut self, key: &str, field: &str) -> bool {
+        let current = self.get(key);
+        if let Some(Value::Hash(mut hash)) = current {
+            let res = hash.remove(field).is_some();
+            self.set(key, &Value::from(hash));
+            return res;
+        }
+        false
+    }
+
+    pub fn hlen(&mut self, key: &str) -> Option<usize> {
+        let current = self.get(key);
+        if let Some(Value::Hash(hash)) = current {
+            return Some(hash.len());
+        }
+        None
+    }
+
+    pub fn hget_all(&mut self, key: &str) -> Option<HashMap<String, String>> {
+        let current = self.get(key);
+        if let Some(Value::Hash(hash)) = current {
+            return Some(hash.clone());
+        }
+        None
+    }
+
+    pub fn hincr_by(&mut self, key: &str, field: &str, by: i64) -> Option<i64> {
+        let current = self.get(key);
+        if let Some(Value::Hash(mut hash)) = current {
+            if let Some(value) = hash.get_mut(field) {
+                match value.parse::<i64>() {
+                    Ok(n) => {
+                        let new_value = n + by;
+                        *value = new_value.to_string();
+                        self.set(key, &Value::from(hash));
+                        return Some(new_value);
+                    }
+                    Err(_) => return None,
+                }
+            } else {
+                hash.insert(field.to_string(), by.to_string());
+                self.set(key, &Value::from(hash));
+                return Some(by);
+            }
+        }
+        None
+    }
 }
