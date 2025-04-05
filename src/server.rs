@@ -1,10 +1,10 @@
-use std::sync::{Arc, Mutex};
-
+use std::sync::Arc;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Mutex;
 
-use crate::command::{DB, handle_command};
+use crate::command::{Command, DB};
 use crate::store::Store;
 
 pub async fn run(addr: &str) -> std::io::Result<()> {
@@ -35,8 +35,24 @@ async fn handle_connection(mut socket: TcpStream, db: DB) -> std::io::Result<()>
             break;
         }
 
-        let response = handle_command(&line, &db);
+        let command = match Command::parse(&line) {
+            Ok(cmd) => cmd,
+            Err(err) => {
+                writer
+                    .write_all(format!("ERR {}\n", err).as_bytes())
+                    .await?;
+                continue;
+            }
+        };
+
+        let mut store = db.lock().await;
+        let response = command.execute(&mut store);
+
         writer.write_all(response.as_bytes()).await?;
+
+        if command.is_quit() {
+            break;
+        }
     }
 
     writer.flush().await?;

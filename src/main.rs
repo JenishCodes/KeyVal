@@ -1,6 +1,7 @@
 mod server;
 mod store;
 mod command;
+mod value;
 
 #[tokio::main]
 async fn main() {

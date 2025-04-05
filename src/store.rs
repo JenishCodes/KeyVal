@@ -1,8 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
+use crate::value::Value;
+
 pub struct Store {
-    data: HashMap<String, String>,
+    data: HashMap<String, Value>,
     expiry: HashMap<String, Instant>,
 }
 
@@ -14,12 +16,12 @@ impl Store {
         }
     }
 
-    pub fn set(&mut self, key: &str, value: &str) {
-        self.data.insert(key.to_string(), value.to_string());
+    pub fn set(&mut self, key: &str, value: &Value) {
+        self.data.insert(key.to_string(), value.clone());
         self.expiry.remove(key);
     }
 
-    pub fn get(&mut self, key: &str) -> Option<String> {
+    pub fn get(&mut self, key: &str) -> Option<Value> {
         if let Some(expiry_time) = self.expiry.get(key) {
             if Instant::now() > *expiry_time {
                 self.data.remove(key);
@@ -31,9 +33,8 @@ impl Store {
     }
 
     pub fn del(&mut self, key: &str) -> bool {
-        let existed = self.data.remove(key).is_some();
         self.expiry.remove(key);
-        existed
+        self.data.remove(key).is_some()
     }
 
     pub fn expire(&mut self, key: &str, duration: u64) -> bool {
@@ -67,15 +68,146 @@ impl Store {
     }
 
     pub fn incr_by(&mut self, key: &str, by: i64) -> Option<i64> {
-        let current = self.get(key).unwrap_or("0".to_string());
+        let current = self.get(key)?;
+        if !current.is_string() {
+            return None;
+        }
+        let current = current.as_string().unwrap();
 
         match current.parse::<i64>() {
             Ok(n) => {
                 let new_value = n + by;
-                self.set(key, &new_value.to_string());
+                self.set(key, &Value::from(new_value.to_string()));
                 Some(new_value)
             }
             Err(_) => None,
         }
+    }
+
+    pub fn lpush(&mut self, key: &str, value: Vec<String>) -> usize {
+        let current = self.get(key);
+        let mut list = match current {
+            Some(Value::List(list)) => list,
+            _ => VecDeque::new(),
+        };
+
+        for v in value.clone() {
+            list.push_front(v);
+        }
+
+        let len = list.len();
+        self.set(key, &Value::from(list));
+
+        len
+    }
+
+    pub fn rpush(&mut self, key: &str, value: Vec<String>) -> usize {
+        let current = self.get(key);
+        let mut list = match current {
+            Some(Value::List(list)) => list,
+            _ => VecDeque::new(),
+        };
+
+        for v in value {
+            list.push_back(v.to_string());
+        }
+
+        let len = list.len();
+        self.set(key, &Value::from(list));
+
+        len
+    }
+
+    pub fn lpop(&mut self, key: &str) -> Option<String> {
+        let current = self.get(key);
+        if let Some(Value::List(mut list)) = current {
+            let value = list.pop_front();
+            self.set(key, &Value::from(list));
+            value
+        } else {
+            None
+        }
+    }
+    pub fn rpop(&mut self, key: &str) -> Option<String> {
+        let current = self.get(key);
+        if let Some(Value::List(mut list)) = current {
+            let value = list.pop_back();
+            self.set(key, &Value::from(list));
+            value
+        } else {
+            None
+        }
+    }
+
+    pub fn llen(&mut self, key: &str) -> Option<usize> {
+        let current = self.get(key);
+        if let Some(Value::List(list)) = current {
+            Some(list.len())
+        } else {
+            None
+        }
+    }
+
+    pub fn lindex(&mut self, key: &str, index: usize) -> Option<String> {
+        let current = self.get(key);
+        if let Some(Value::List(list)) = current {
+            if index < list.len() {
+                return Some(list[index].clone());
+            }
+        }
+        None
+    }
+
+    pub fn lset(&mut self, key: &str, index: usize, value: String) -> bool {
+        let current = self.get(key);
+        if let Some(Value::List(mut list)) = current {
+            if index < list.len() {
+                list[index] = value;
+                self.set(key, &Value::from(list));
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn lrange(&mut self, key: &str, start: usize, end: usize) -> Option<Vec<String>> {
+        let current = self.get(key);
+        if let Some(Value::List(list)) = current {
+            if start < end && start < list.len() && end < list.len() {
+                return Some(list.range(start..=end).cloned().collect());
+            }
+        }
+        None
+    }
+
+    pub fn lrem(&mut self, key: &str, count: i64, value: String) -> usize {
+        let current = self.get(key);
+        if let Some(Value::List(mut list)) = current {
+            let mut removed_count = 0;
+            if count > 0 {
+                while let Some(pos) = list.iter().position(|x| *x == value) {
+                    list.remove(pos);
+                    removed_count += 1;
+                    if removed_count == count as usize {
+                        break;
+                    }
+                }
+            } else if count < 0 {
+                while let Some(pos) = list.iter().rposition(|x| *x == value) {
+                    list.remove(pos);
+                    removed_count += 1;
+                    if removed_count == (-count) as usize {
+                        break;
+                    }
+                }
+            } else {
+                removed_count = list.iter().filter(|x| **x == value).count();
+                list.retain(|x| *x != value);
+            }
+
+            self.set(key, &Value::from(list));
+            return removed_count;
+        }
+        0
     }
 }
